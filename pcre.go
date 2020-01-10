@@ -160,7 +160,7 @@ func pcreGroups(ptr *C.pcre) (count C.int) {
 // finalizer.  PCRE patterns are fully relocatable. (We do not use
 // custom character tables.)
 func toHeap(ptr *C.pcre) (re Regexp) {
-	defer C.free(unsafe.Pointer(ptr))
+	defer C.pcre_free(unsafe.Pointer(ptr))
 	size := pcreSize(ptr)
 	re.ptr = make([]byte, size)
 	C.memcpy(unsafe.Pointer(&re.ptr[0]), unsafe.Pointer(ptr), size)
@@ -200,7 +200,7 @@ func Compile(pattern string, flags int) (Regexp, error) {
 func CompileJIT(pattern string, comFlags, jitFlags int) (Regexp, error) {
 	re, err := Compile(pattern, comFlags)
 	if err == nil {
-		err = (&re).Study(jitFlags)
+		err = re.Study(jitFlags)
 	}
 	return re, err
 }
@@ -244,7 +244,7 @@ func (re *Regexp) Study(flags int) error {
 		// Studying the pattern may not produce useful information.
 		return nil
 	}
-	defer C.free(unsafe.Pointer(extra))
+	defer C.pcre_free_study((*C.pcre_extra)(extra))
 
 	var size C.size_t
 	rc := C.pcre_fullinfo(ptr, extra, C.PCRE_INFO_JITSIZE, unsafe.Pointer(&size))
@@ -255,6 +255,18 @@ func (re *Regexp) Study(flags int) error {
 	C.memcpy(unsafe.Pointer(&re.extra[0]), unsafe.Pointer(extra), size)
 	return nil
 }
+
+// type PcreExtra struct {
+// 	extra *C.pcre_extra
+// }
+
+// func (self *PcreExtra) Free() {
+// 	freeStudy(self.extra)
+// }
+
+// func freeStudy(extra *C.pcre_extra)  {
+// 	C.pcre_free_study((*C.pcre_extra)(unsafe.Pointer(extra)))	
+// }
 
 // Groups returns the number of capture groups in the compiled pattern.
 func (re Regexp) Groups() int {

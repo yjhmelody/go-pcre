@@ -256,18 +256,6 @@ func (re *Regexp) Study(flags int) error {
 	return nil
 }
 
-// type PcreExtra struct {
-// 	extra *C.pcre_extra
-// }
-
-// func (self *PcreExtra) Free() {
-// 	freeStudy(self.extra)
-// }
-
-// func freeStudy(extra *C.pcre_extra)  {
-// 	C.pcre_free_study((*C.pcre_extra)(unsafe.Pointer(extra)))	
-// }
-
 // Groups returns the number of capture groups in the compiled pattern.
 func (re Regexp) Groups() int {
 	if re.ptr == nil {

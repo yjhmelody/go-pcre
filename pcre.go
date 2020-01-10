@@ -200,7 +200,7 @@ func Compile(pattern string, flags int) (Regexp, error) {
 func CompileJIT(pattern string, comFlags, jitFlags int) (Regexp, error) {
 	re, err := Compile(pattern, comFlags)
 	if err == nil {
-		err = (&re).Study(jitFlags)
+		err = re.Study(jitFlags)
 	}
 	return re, err
 }
@@ -244,7 +244,7 @@ func (re *Regexp) Study(flags int) error {
 		// Studying the pattern may not produce useful information.
 		return nil
 	}
-	defer C.free(unsafe.Pointer(extra))
+	defer C.pcre_free_study((*C.pcre_extra)(extra))
 
 	var size C.size_t
 	rc := C.pcre_fullinfo(ptr, extra, C.PCRE_INFO_JITSIZE, unsafe.Pointer(&size))

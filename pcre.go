@@ -160,7 +160,7 @@ func pcreGroups(ptr *C.pcre) (count C.int) {
 // finalizer.  PCRE patterns are fully relocatable. (We do not use
 // custom character tables.)
 func toHeap(ptr *C.pcre) (re Regexp) {
-	defer C.pcre_free(unsafe.Pointer(ptr))
+	defer C.free(unsafe.Pointer(ptr))
 	size := pcreSize(ptr)
 	re.ptr = make([]byte, size)
 	C.memcpy(unsafe.Pointer(&re.ptr[0]), unsafe.Pointer(ptr), size)

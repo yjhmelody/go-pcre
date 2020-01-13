@@ -269,9 +269,11 @@ type Matcher struct {
 func (re Regexp) Close() {
 	if re.extra != nil {
 		C.pcre_free_study(re.extra)
+		re.extra = nil
 	}
 	if re.ptr != nil {
 		C.free(unsafe.Pointer(re.ptr))
+		re.ptr = nil
 	}
 }
 

@@ -1,6 +1,6 @@
 # go-pcre
 
-[![GoDoc](https://godoc.org/github.com/gijsbers/go-pcre?status.svg)](https://godoc.org/github.com/gijsbers/go-pcre)
+[![GoDoc](https://godoc.org/github.com/yjhmelody/go-pcre?status.svg)](https://godoc.org/github.com/yjhmelody/go-pcre)
 
 This is a Go language package providing support for
 Perl Compatible Regular Expressions (PCRE).
@@ -9,15 +9,19 @@ Perl Compatible Regular Expressions (PCRE).
 
 Install the package for Debian as follows:
 
+```sh
     sudo apt-get install libpcre++-dev
     go get github.com/gijsbers/go-pcre
+```
 
 ## Usage
 
 Go programs that depend on this package should import
 this package as follows to allow automatic downloading:
 
-    import "github.com/gijsbers/go-pcre"
+```go
+import "github.com/gijsbers/go-pcre"
+```
 
 ## History
 

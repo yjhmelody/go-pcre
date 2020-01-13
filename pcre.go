@@ -139,8 +139,8 @@ const (
 // Regexp holds a reference to a compiled regular expression.
 // Use Compile or MustCompile to create such objects.
 type Regexp struct {
-	ptr   []byte
-	extra []byte
+	extra *C.pcre_extra
+	ptr   *C.pcre
 }
 
 // Number of bytes in the compiled pattern
@@ -151,19 +151,7 @@ func pcreSize(ptr *C.pcre) (size C.size_t) {
 
 // Number of capture groups
 func pcreGroups(ptr *C.pcre) (count C.int) {
-	C.pcre_fullinfo(ptr, nil,
-		C.PCRE_INFO_CAPTURECOUNT, unsafe.Pointer(&count))
-	return
-}
-
-// Move pattern to the Go heap so that we do not have to use a
-// finalizer.  PCRE patterns are fully relocatable. (We do not use
-// custom character tables.)
-func toHeap(ptr *C.pcre) (re Regexp) {
-	defer C.free(unsafe.Pointer(ptr))
-	size := pcreSize(ptr)
-	re.ptr = make([]byte, size)
-	C.memcpy(unsafe.Pointer(&re.ptr[0]), unsafe.Pointer(ptr), size)
+	C.pcre_fullinfo(ptr, nil, C.PCRE_INFO_CAPTURECOUNT, unsafe.Pointer(&count))
 	return
 }
 
@@ -189,8 +177,12 @@ func Compile(pattern string, flags int) (Regexp, error) {
 			Offset:  int(erroffset),
 		}
 	}
-	heap := toHeap(ptr)
-	return heap, nil
+
+	re := Regexp{
+		ptr:   ptr,
+		extra: nil,
+	}
+	return re, nil
 }
 
 // CompileJIT is a combination of Compile and Study. It first compiles
@@ -234,25 +226,21 @@ func (re *Regexp) Study(flags int) error {
 		flags = STUDY_JIT_COMPILE
 	}
 
-	ptr := (*C.pcre)(unsafe.Pointer(&re.ptr[0]))
 	var err *C.char
-	extra := C.pcre_study(ptr, C.int(flags), &err)
+	re.extra = C.pcre_study(re.ptr, C.int(flags), &err)
 	if err != nil {
 		return fmt.Errorf("%s", C.GoString(err))
 	}
-	if extra == nil {
+	if re.extra == nil {
 		// Studying the pattern may not produce useful information.
 		return nil
 	}
-	defer C.pcre_free_study((*C.pcre_extra)(extra))
 
 	var size C.size_t
-	rc := C.pcre_fullinfo(ptr, extra, C.PCRE_INFO_JITSIZE, unsafe.Pointer(&size))
+	rc := C.pcre_fullinfo(re.ptr, re.extra, C.PCRE_INFO_JITSIZE, unsafe.Pointer(&size))
 	if rc != 0 || size == 0 {
 		return fmt.Errorf("Study failed to obtain JIT size (%d)", int(rc))
 	}
-	re.extra = make([]byte, size)
-	C.memcpy(unsafe.Pointer(&re.extra[0]), unsafe.Pointer(extra), size)
 	return nil
 }
 
@@ -261,7 +249,7 @@ func (re Regexp) Groups() int {
 	if re.ptr == nil {
 		panic("Regexp.Groups: uninitialized")
 	}
-	return int(pcreGroups((*C.pcre)(unsafe.Pointer(&re.ptr[0]))))
+	return int(pcreGroups(re.ptr))
 }
 
 // Matcher objects provide a place for storing match results.
@@ -275,6 +263,16 @@ type Matcher struct {
 	partial  bool    // was the last match a partial match?
 	subjects string  // one of these fields is set to record the subject,
 	subjectb []byte  // so that Group/GroupString can return slices
+}
+
+// Close free C space memory; don't use Regexp after calling it
+func (re Regexp) Close() {
+	if re.extra != nil {
+		C.pcre_free_study(re.extra)
+	}
+	if re.ptr != nil {
+		C.free(unsafe.Pointer(re.ptr))
+	}
 }
 
 // NewMatcher creates a new matcher object for the given Regexp.
@@ -320,7 +318,7 @@ func (m *Matcher) Init(re *Regexp) {
 		panic("Matcher.Init: uninitialized")
 	}
 	m.matches = false
-	if m.re.ptr != nil && &m.re.ptr[0] == &re.ptr[0] {
+	if m.re.ptr != nil && m.re.ptr == re.ptr {
 		// Skip group count extraction if the matcher has
 		// already been initialized with the same regular
 		// expression.
@@ -395,13 +393,7 @@ func (m *Matcher) ExecString(subject string, flags int) int {
 }
 
 func (m *Matcher) exec(subjectptr *C.char, length, flags int) int {
-	var extra *C.pcre_extra
-	if m.re.extra != nil {
-		extra = (*C.pcre_extra)(unsafe.Pointer(&m.re.extra[0]))
-	}
-	rc := C.pcre_exec((*C.pcre)(unsafe.Pointer(&m.re.ptr[0])), extra,
-		subjectptr, C.int(length),
-		0, C.int(flags), &m.ovector[0], C.int(len(m.ovector)))
+	rc := C.pcre_exec(m.re.ptr, m.re.extra, subjectptr, C.int(length), 0, C.int(flags), &m.ovector[0], C.int(len(m.ovector)))
 	return int(rc)
 }
 
@@ -544,8 +536,7 @@ func (m *Matcher) name2index(name string) (int, error) {
 	}
 	name1 := C.CString(name)
 	defer C.free(unsafe.Pointer(name1))
-	group := int(C.pcre_get_stringnumber(
-		(*C.pcre)(unsafe.Pointer(&m.re.ptr[0])), name1))
+	group := int(C.pcre_get_stringnumber(m.re.ptr, name1))
 	if group < 0 {
 		return group, fmt.Errorf("Matcher.Named: unknown name: " + name)
 	}

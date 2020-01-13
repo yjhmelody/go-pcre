@@ -141,8 +141,6 @@ const (
 type Regexp struct {
 	extra *C.pcre_extra
 	ptr   *C.pcre
-	// ptr   []byte
-	// extra []byte
 }
 
 // Number of bytes in the compiled pattern
@@ -156,17 +154,6 @@ func pcreGroups(ptr *C.pcre) (count C.int) {
 	C.pcre_fullinfo(ptr, nil, C.PCRE_INFO_CAPTURECOUNT, unsafe.Pointer(&count))
 	return
 }
-
-// Move pattern to the Go heap so that we do not have to use a
-// finalizer.  PCRE patterns are fully relocatable. (We do not use
-// custom character tables.)
-// func toHeap(ptr *C.pcre) (re Regexp) {
-// 	defer C.free(unsafe.Pointer(ptr))
-// 	size := pcreSize(ptr)
-// 	re.ptr = make([]byte, size)
-// 	C.memcpy(unsafe.Pointer(&re.ptr[0]), unsafe.Pointer(ptr), size)
-// 	return
-// }
 
 // Compile the pattern and return a compiled regexp.
 // If compilation fails, the second return value holds a *CompileError.
@@ -239,7 +226,6 @@ func (re *Regexp) Study(flags int) error {
 		flags = STUDY_JIT_COMPILE
 	}
 
-	// ptr := (*C.pcre)(unsafe.Pointer(&re.ptr[0]))
 	var err *C.char
 	re.extra = C.pcre_study(re.ptr, C.int(flags), &err)
 	if err != nil {
@@ -249,15 +235,12 @@ func (re *Regexp) Study(flags int) error {
 		// Studying the pattern may not produce useful information.
 		return nil
 	}
-	// defer C.free(unsafe.Pointer(extra))
 
 	var size C.size_t
 	rc := C.pcre_fullinfo(re.ptr, re.extra, C.PCRE_INFO_JITSIZE, unsafe.Pointer(&size))
 	if rc != 0 || size == 0 {
 		return fmt.Errorf("Study failed to obtain JIT size (%d)", int(rc))
 	}
-	// re.extra = make([]byte, size)
-	// C.memcpy(unsafe.Pointer(&re.extra[0]), unsafe.Pointer(extra), size)
 	return nil
 }
 
@@ -282,9 +265,14 @@ type Matcher struct {
 	subjectb []byte  // so that Group/GroupString can return slices
 }
 
-func (re Regexp) Free() {
-	C.pcre_free_study(re.extra)
-	C.free(unsafe.Pointer(re.ptr))
+// Close free C space memory; don't use Regexp after calling it
+func (re Regexp) Close() {
+	if re.extra != nil {
+		C.pcre_free_study(re.extra)
+	}
+	if re.ptr != nil {
+		C.free(unsafe.Pointer(re.ptr))
+	}
 }
 
 // NewMatcher creates a new matcher object for the given Regexp.
@@ -405,10 +393,6 @@ func (m *Matcher) ExecString(subject string, flags int) int {
 }
 
 func (m *Matcher) exec(subjectptr *C.char, length, flags int) int {
-	// var extra *C.pcre_extra
-	// if m.re.extra != nil {
-	// extra = (*C.pcre_extra)(unsafe.Pointer(&m.re.extra[0]))
-	// }
 	rc := C.pcre_exec(m.re.ptr, m.re.extra, subjectptr, C.int(length), 0, C.int(flags), &m.ovector[0], C.int(len(m.ovector)))
 	return int(rc)
 }

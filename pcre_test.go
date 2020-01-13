@@ -25,7 +25,6 @@ func TestCompile(t *testing.T) {
 }
 
 func TestJIT(t *testing.T)  {
-
 	pattern := "[A-Za-z0-9](([_.-]?[a-zA-Z0-9]+)*)@([A-Za-z0-9]+)(([.-]?[a-zA-Z0-9]+)*).([A-Za-z]{2,})"
 	// pattern := "[0-9]"
 	flags := 0
@@ -34,12 +33,13 @@ func TestJIT(t *testing.T)  {
 	if err != nil {
 		t.Error(err)
 	}
+	defer re.Close()
+
 	matcher := re.MatcherString("123456789@chaitin.com", 0)
 	if matcher.Matches() == false {
 		t.Error("jit match error")
 	}
 
-	re.Free()
 }
 
 func TestCompileFail(t *testing.T) {

@@ -24,7 +24,7 @@ func TestCompile(t *testing.T) {
 	check("((?:))", 1)
 }
 
-func TestJIT(t *testing.T)  {
+func TestJIT(t *testing.T) {
 	pattern := "[A-Za-z0-9](([_.-]?[a-zA-Z0-9]+)*)@([A-Za-z0-9]+)(([.-]?[a-zA-Z0-9]+)*).([A-Za-z]{2,})"
 	// pattern := "[0-9]"
 	flags := 0
@@ -33,6 +33,9 @@ func TestJIT(t *testing.T)  {
 	if err != nil {
 		t.Error(err)
 	}
+
+	// test double free
+	defer re.Close()
 	defer re.Close()
 
 	matcher := re.MatcherString("123456789@chaitin.com", 0)
@@ -92,14 +95,14 @@ func checkmatch1(t *testing.T, dostring bool, m *Matcher,
 		if m == nil {
 			m = re.MatcherString(subject, 0)
 		} else {
-			m.ResetString(re, subject, 0)
+			m.ResetString(*re, subject, 0)
 		}
 		prefix = "string"
 	} else {
 		if m == nil {
 			m = re.Matcher([]byte(subject), 0)
 		} else {
-			m.Reset(re, []byte(subject), 0)
+			m.Reset(*re, []byte(subject), 0)
 		}
 		prefix = "[]byte"
 	}

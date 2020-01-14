@@ -157,11 +157,11 @@ func pcreGroups(ptr *C.pcre) (count C.int) {
 
 // Compile the pattern and return a compiled regexp.
 // If compilation fails, the second return value holds a *CompileError.
-func Compile(pattern string, flags int) (Regexp, error) {
+func Compile(pattern string, flags int) (*Regexp, error) {
 	pattern1 := C.CString(pattern)
 	defer C.free(unsafe.Pointer(pattern1))
 	if clen := int(C.strlen(pattern1)); clen != len(pattern) {
-		return Regexp{}, &CompileError{
+		return &Regexp{}, &CompileError{
 			Pattern: pattern,
 			Message: "NUL byte in pattern",
 			Offset:  clen,
@@ -171,14 +171,14 @@ func Compile(pattern string, flags int) (Regexp, error) {
 	var erroffset C.int
 	ptr := C.pcre_compile(pattern1, C.int(flags), &errptr, &erroffset, nil)
 	if ptr == nil {
-		return Regexp{}, &CompileError{
+		return &Regexp{}, &CompileError{
 			Pattern: pattern,
 			Message: C.GoString(errptr),
 			Offset:  int(erroffset),
 		}
 	}
 
-	re := Regexp{
+	re := &Regexp{
 		ptr:   ptr,
 		extra: nil,
 	}
@@ -189,7 +189,7 @@ func Compile(pattern string, flags int) (Regexp, error) {
 // the pattern and if this succeeds calls Study on the compiled pattern.
 // comFlags are Compile flags, jitFlags are study flags.
 // If compilation fails, the second return value holds a *CompileError.
-func CompileJIT(pattern string, comFlags, jitFlags int) (Regexp, error) {
+func CompileJIT(pattern string, comFlags, jitFlags int) (*Regexp, error) {
 	re, err := Compile(pattern, comFlags)
 	if err == nil {
 		err = re.Study(jitFlags)
@@ -198,7 +198,7 @@ func CompileJIT(pattern string, comFlags, jitFlags int) (Regexp, error) {
 }
 
 // MustCompile compiles the pattern.  If compilation fails, panic.
-func MustCompile(pattern string, flags int) (re Regexp) {
+func MustCompile(pattern string, flags int) (re *Regexp) {
 	re, err := Compile(pattern, flags)
 	if err != nil {
 		panic(err)
@@ -207,7 +207,7 @@ func MustCompile(pattern string, flags int) (re Regexp) {
 }
 
 // MustCompileJIT compiles and studies the pattern.  On failure it panics.
-func MustCompileJIT(pattern string, comFlags, jitFlags int) (re Regexp) {
+func MustCompileJIT(pattern string, comFlags, jitFlags int) (re *Regexp) {
 	re, err := CompileJIT(pattern, comFlags, jitFlags)
 	if err != nil {
 		panic(err)
@@ -245,11 +245,75 @@ func (re *Regexp) Study(flags int) error {
 }
 
 // Groups returns the number of capture groups in the compiled pattern.
-func (re Regexp) Groups() int {
+func (re *Regexp) Groups() int {
 	if re.ptr == nil {
 		panic("Regexp.Groups: uninitialized")
 	}
 	return int(pcreGroups(re.ptr))
+}
+
+// Close free C space memory; don't use Regexp after calling it
+func (re *Regexp) Close() {
+	if re.extra != nil {
+		C.pcre_free_study(re.extra)
+		re.extra = nil
+	}
+	if re.ptr != nil {
+		C.free(unsafe.Pointer(re.ptr))
+		re.ptr = nil
+	}
+}
+
+// NewMatcher creates a new matcher object for the given Regexp.
+func (re *Regexp) NewMatcher() (m *Matcher) {
+	m = new(Matcher)
+	m.Init(*re)
+	return
+}
+
+// Matcher creates a new matcher object, with the byte slice as subject.
+// It also starts a first match on subject. Test for success with Matches().
+func (re *Regexp) Matcher(subject []byte, flags int) (m *Matcher) {
+	m = re.NewMatcher()
+	m.Match(subject, flags)
+	return
+}
+
+// MatcherString creates a new matcher, with the specified subject string.
+// It also starts a first match on subject. Test for success with Matches().
+func (re *Regexp) MatcherString(subject string, flags int) (m *Matcher) {
+	m = re.NewMatcher()
+	m.MatchString(subject, flags)
+	return
+}
+
+// FindIndex returns the start and end of the first match,
+// or nil if no match.  loc[0] is the start and loc[1] is the end.
+func (re *Regexp) FindIndex(bytes []byte, flags int) (loc []int) {
+	m := re.Matcher(bytes, flags)
+	if m.Matches() {
+		loc = []int{int(m.ovector[0]), int(m.ovector[1])}
+		return
+	}
+	return nil
+}
+
+// ReplaceAll returns a copy of a byte slice
+// where all pattern matches are replaced by repl.
+func (re *Regexp) ReplaceAll(bytes, repl []byte, flags int) []byte {
+	m := re.Matcher(bytes, flags)
+	r := []byte{}
+	for m.matches {
+		r = append(append(r, bytes[:m.ovector[0]]...), repl...)
+		bytes = bytes[m.ovector[1]:]
+		m.Match(bytes, flags)
+	}
+	return append(r, bytes...)
+}
+
+// ReplaceAllString is equivalent to ReplaceAll with string return type.
+func (re *Regexp) ReplaceAllString(in, repl string, flags int) string {
+	return string(re.ReplaceAll([]byte(in), []byte(repl), flags))
 }
 
 // Matcher objects provide a place for storing match results.
@@ -265,57 +329,22 @@ type Matcher struct {
 	subjectb []byte  // so that Group/GroupString can return slices
 }
 
-// Close free C space memory; don't use Regexp after calling it
-func (re Regexp) Close() {
-	if re.extra != nil {
-		C.pcre_free_study(re.extra)
-		re.extra = nil
-	}
-	if re.ptr != nil {
-		C.free(unsafe.Pointer(re.ptr))
-		re.ptr = nil
-	}
-}
-
-// NewMatcher creates a new matcher object for the given Regexp.
-func (re Regexp) NewMatcher() (m *Matcher) {
-	m = new(Matcher)
-	m.Init(&re)
-	return
-}
-
-// Matcher creates a new matcher object, with the byte slice as subject.
-// It also starts a first match on subject. Test for success with Matches().
-func (re Regexp) Matcher(subject []byte, flags int) (m *Matcher) {
-	m = re.NewMatcher()
-	m.Match(subject, flags)
-	return
-}
-
-// MatcherString creates a new matcher, with the specified subject string.
-// It also starts a first match on subject. Test for success with Matches().
-func (re Regexp) MatcherString(subject string, flags int) (m *Matcher) {
-	m = re.NewMatcher()
-	m.MatchString(subject, flags)
-	return
-}
-
 // Reset switches the matcher object to the specified regexp and subject.
 // It also starts a first match on subject.
 func (m *Matcher) Reset(re Regexp, subject []byte, flags int) bool {
-	m.Init(&re)
+	m.Init(re)
 	return m.Match(subject, flags)
 }
 
 // ResetString switches the matcher object to the given regexp and subject.
 // It also starts a first match on subject.
 func (m *Matcher) ResetString(re Regexp, subject string, flags int) bool {
-	m.Init(&re)
+	m.Init(re)
 	return m.MatchString(subject, flags)
 }
 
 // Init binds an existing Matcher object to the given Regexp.
-func (m *Matcher) Init(re *Regexp) {
+func (m *Matcher) Init(re Regexp) {
 	if re.ptr == nil {
 		panic("Matcher.Init: uninitialized")
 	}
@@ -326,7 +355,7 @@ func (m *Matcher) Init(re *Regexp) {
 		// expression.
 		return
 	}
-	m.re = *re
+	m.re = re
 	m.groups = re.Groups()
 	if ovectorlen := 3 * (1 + m.groups); len(m.ovector) < ovectorlen {
 		m.ovector = make([]C.int, ovectorlen)
@@ -575,35 +604,6 @@ func (m *Matcher) NamedPresent(group string) (bool, error) {
 		return false, err
 	}
 	return m.Present(groupNum), nil
-}
-
-// FindIndex returns the start and end of the first match,
-// or nil if no match.  loc[0] is the start and loc[1] is the end.
-func (re *Regexp) FindIndex(bytes []byte, flags int) (loc []int) {
-	m := re.Matcher(bytes, flags)
-	if m.Matches() {
-		loc = []int{int(m.ovector[0]), int(m.ovector[1])}
-		return
-	}
-	return nil
-}
-
-// ReplaceAll returns a copy of a byte slice
-// where all pattern matches are replaced by repl.
-func (re Regexp) ReplaceAll(bytes, repl []byte, flags int) []byte {
-	m := re.Matcher(bytes, flags)
-	r := []byte{}
-	for m.matches {
-		r = append(append(r, bytes[:m.ovector[0]]...), repl...)
-		bytes = bytes[m.ovector[1]:]
-		m.Match(bytes, flags)
-	}
-	return append(r, bytes...)
-}
-
-// ReplaceAllString is equivalent to ReplaceAll with string return type.
-func (re Regexp) ReplaceAllString(in, repl string, flags int) string {
-	return string(re.ReplaceAll([]byte(in), []byte(repl), flags))
 }
 
 // CompileError holds details about a compilation error,

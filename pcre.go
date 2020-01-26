@@ -171,7 +171,7 @@ func Compile(pattern string, flags int) (*Regexp, error) {
 	var erroffset C.int
 	ptr := C.pcre_compile(pattern1, C.int(flags), &errptr, &erroffset, nil)
 	if ptr == nil {
-		return &Regexp{}, &CompileError{
+		return nil, &CompileError{
 			Pattern: pattern,
 			Message: C.GoString(errptr),
 			Offset:  int(erroffset),
@@ -267,7 +267,7 @@ func (re *Regexp) Close() {
 // NewMatcher creates a new matcher object for the given Regexp.
 func (re *Regexp) NewMatcher() (m *Matcher) {
 	m = new(Matcher)
-	m.Init(*re)
+	m.Init(re)
 	return
 }
 
@@ -320,7 +320,7 @@ func (re *Regexp) ReplaceAllString(in, repl string, flags int) string {
 // They can be created by the Matcher and MatcherString functions,
 // or they can be initialized with Reset or ResetString.
 type Matcher struct {
-	re       Regexp
+	re       *Regexp
 	groups   int
 	ovector  []C.int // scratch space for capture offsets
 	matches  bool    // last match was successful
@@ -331,25 +331,26 @@ type Matcher struct {
 
 // Reset switches the matcher object to the specified regexp and subject.
 // It also starts a first match on subject.
-func (m *Matcher) Reset(re Regexp, subject []byte, flags int) bool {
+func (m *Matcher) Reset(re *Regexp, subject []byte, flags int) bool {
 	m.Init(re)
 	return m.Match(subject, flags)
 }
 
 // ResetString switches the matcher object to the given regexp and subject.
 // It also starts a first match on subject.
-func (m *Matcher) ResetString(re Regexp, subject string, flags int) bool {
+func (m *Matcher) ResetString(re *Regexp, subject string, flags int) bool {
 	m.Init(re)
 	return m.MatchString(subject, flags)
 }
 
 // Init binds an existing Matcher object to the given Regexp.
-func (m *Matcher) Init(re Regexp) {
+func (m *Matcher) Init(re *Regexp) {
 	if re.ptr == nil {
 		panic("Matcher.Init: uninitialized")
 	}
 	m.matches = false
-	if m.re.ptr != nil && m.re.ptr == re.ptr {
+
+	if m.re != nil && m.re.ptr != nil && m.re.ptr == re.ptr {
 		// Skip group count extraction if the matcher has
 		// already been initialized with the same regular
 		// expression.
